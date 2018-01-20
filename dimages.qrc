@@ -1,0 +1,8 @@
+<RCC>
+  <qresource prefix="Directions">
+    <file>images/stop.jpg</file>
+    <file>images/right.jpg</file>
+    <file>images/moving.jpg</file>
+    <file>images/left.jpg</file>
+  </qresource>
+</RCC>
