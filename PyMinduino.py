@@ -1,225 +1,222 @@
-import socket,json,time
+import socket,json,time,serial
 import serial.tools.list_ports
+from PyQt4 import QtGui, QtCore
+from PyQt4.QtGui import *
+from PyQt4.QtCore import QTimer,QTime
 import sys
-import serial
+import gui
+
 
 neuroSocket = None
 ser = None
+flag=0
+counter=3
 
-def connectToNeurosky():
-    global neuroSocket
-    neuroSocket = socket.create_connection(("127.0.0.1",13854))
-    data = '{"appName":"appName","appKey":"appKey"}'
-    formatt = '{"enableRawOutput":true,"format":"Json"}'
-    r = neuroSocket.sendall(formatt)
-    print r
 
-def connectToArduino():
-    global ser
-    ports = list(serial.tools.list_ports.comports())
-    for p in ports:
-        print p
-        if("Silicon" in str(p[1]) or "Arduino" in str(p[1])):
-            print "Arduino Located at ",p[0]
-            ser = serial.Serial(p[0], 9600)
-            break
+class WheelchairControl(QtGui.QMainWindow, gui.Ui_MainWindow):
+    def __init__(self):
 
-    ######30 sec delay
-    delay = 30
-    print "Setting up device in "
-    start=time.time()
-    diff=0
-    prevNum = delay
-    while diff<delay:
-        rep = neuroSocket.recv(1024)
-        diff=time.time()-start
-        currNum = int(delay-diff)
-        if(prevNum != currNum):
-            prevNum = currNum
-            print currNum
+        super(self.__class__, self).__init__()
+        self.setupUi(self)  # This is defined in design.py file automatically
+                            # It sets up layout and widgets that are defined
+        self.imageLabel.setFont(QtGui.QFont("Droid Sans",48,QtGui.QFont.Bold))
+        self.imageLabel.setAlignment(QtCore.Qt.AlignCenter)
+        self.setupHardware()
 
-def receiveData():
-    isMoving = True
-    fwd="1"
-    stop = "2"
-    timeDiff=0
-    flag = 0
-    blinkc=0
-    while True:
-        rep = neuroSocket.recv(1024)
-        if("poor" in rep):
-            rep = rep.split('\r')
-            for data in rep:
-                if("raw" in data or "mental" in data):                                  #skip unwanted values
-                    continue
-                if(len(data)>10):                                                       #avoid partial data, WIP
-                    print data
-                    parsed_data=json.loads(data)
-                    if('poorSignalLevel' in parsed_data):
-                        if(parsed_data['poorSignalLevel'] > 0):
-                            flag = 1
-                            print "Poor Signal Detected. MindWave incorrectly placed."
-                            print "Signal Strength :",parsed_data['poorSignalLevel']
-                        else:
-                            if(flag):
-                                flag = 0
-                                print "Connection Secured."
-                    #if('blinkStrength' in parsed_data):
-                    #    print "Blink Strength :",parsed_data['blinkStrength']
-                    
-        if("blink" in rep):
-            if(blinkc == 0):
-                start=time.time()
-            print "blink"
-            blinkc=blinkc+1
-            print "Count :",blinkc
-            if(blinkc == 2):
-                timeDiff=time.time()- start
-                print "Start",start
-                print "Diff",timeDiff
-                if timeDiff<=1:                                 #1 sec interval for detecting 2 blinks
-                    print "Two Blinks Detected ",blinkc
-                    
-                    if(isMoving):                               #previous moving (any direction) then stop
-                        print "Stop"
-                        #ser.write(stop)
-                    else:                                       #call gui for selecting direction
-                        #GUI function
-                        pass
-                    timeDiff = 0
-                    blinkc=0
+
+    def setupHardware(self):
+        try:
+            global neuroSocket, ser
+
+            #connect to neurosky mindwave
+            print "Waiting for MindWave"
+            self.connectToNeurosky()
+            if(neuroSocket != None):
+                print "Connected to Neurosky MindWave"
+                #connect to arduino
+                print "Connecting to Arduino"
+                self.connectToArduino()
+                #receive data
+                if(ser != None):
+                    print "Connected to Arduino"
+                    self.tick()
+                    self.show()
+                    self.receiveData()
                 else:
-                    print "No Blink"
-                    blinkc=0
-        
-        
-#        if("eSense" in rep):
-#            rep = rep.split('\r')
-#            for data in rep:
-#                print data
-
-
-'''
-        timeDiff=time.time()- start
-        if timeDiff>3:
-            print blinkc
-            if blinkc==2:
-                fwd="2"
-                print("forward")
+                    print "Arduino not available"
             else:
-                fwd="1"
-                print"stop"
-            ser.write(fwd)
-            timeDiff=0
-            start=time.time()
-            blinkc=0
+                print "Error connecting to MindWave"
 
-##################################
-#    time.sleep(15)
-    print "Forward"
-    ser.write(fwd)
+        except KeyboardInterrupt:
+            print "Program Terminated"
+        except Exception:
+            tb = sys.exc_info()
+            print "Exception"
+            print tb[1]
+            print tb
+            if("actively refused" in str(tb[1])):
+                print "ThinkGear is not running"
 
-    time.sleep(3)
-    #msg = ser.read(ser.inWaiting())
-    #print msg
+        finally:
+            print "Clean up"
+            if(ser != None):
+                ser.close()
+            if(neuroSocket != None):
+                neuroSocket.close()
+            print "System Shutdown"
 
-    print "Stop"
-    ser.write(stop)
+    def connectToNeurosky(self):
+        global neuroSocket
+        neuroSocket = socket.create_connection(("127.0.0.1",13854))
+        data = '{"appName":"appName","appKey":"appKey"}'
+        formatt = '{"enableRawOutput":true,"format":"Json"}'
+        r = neuroSocket.sendall(formatt)
+        print r
 
-    time.sleep(5)
-    #msg = ser.read(ser.inWaiting())
-    #print msg
-'''
+    def connectToArduino(self):
+        global ser
+        ports = list(serial.tools.list_ports.comports())
+        for p in ports:
+            print p
+            if("Silicon" in str(p[1]) or "Arduino" in str(p[1])):
+                print "Arduino Located at ",p[0]
+                ser = serial.Serial(p[0], 9600)
+                break
+
+        ######30 sec delay
+        delay = 30
+        print "Setting up device in "
+        start=time.time()
+        diff=0
+        prevNum = delay
+        while diff<delay:
+            rep = neuroSocket.recv(1024)
+            diff=time.time()-start
+            currNum = int(delay-diff)
+            if(prevNum != currNum):
+                prevNum = currNum
+                print currNum
+
+    def receiveData(self):
+        isMoving = True
+        fwd="1"
+        stop = "2"
+        timeDiff=0
+        flag = 0
+        blinkc=0
+        while True:
+            rep = neuroSocket.recv(1024)
+            if("poor" in rep):
+                rep = rep.split('\r')
+                for data in rep:
+                    if("raw" in data or "mental" in data):                                  #skip unwanted values
+                        continue
+                    if(len(data)>10):                                                       #avoid partial data, WIP
+                        print data
+                        parsed_data=json.loads(data)
+                        if('poorSignalLevel' in parsed_data):
+                            if(parsed_data['poorSignalLevel'] > 0):
+                                flag = 1
+                                print "Poor Signal Detected. MindWave incorrectly placed."
+                                print "Signal Strength :",parsed_data['poorSignalLevel']
+                            else:
+                                if(flag):
+                                    flag = 0
+                                    print "Connection Secured."
+                        #if('blinkStrength' in parsed_data):
+                        #    print "Blink Strength :",parsed_data['blinkStrength']
+
+            if("blink" in rep):
+                if(blinkc == 0):
+                    start=time.time()
+                print "blink"
+                blinkc=blinkc+1
+                print "Count :",blinkc
+                if(blinkc == 2):
+                    timeDiff=time.time()- start
+                    print "Start",start
+                    print "Diff",timeDiff
+                    if timeDiff<=1:                                 #1 sec interval for detecting 2 blinks
+                        print "Two Blinks Detected ",blinkc
+
+                        if(isMoving):                               #previous moving (any direction) then stop
+                            print "Stop"
+                            self.imageLabel.setText("STOP")
+                            #ser.write(stop)
+                        else:                                       #call gui for selecting direction
+                            #GUI function
+                            self.change()
+                            pass
+                        timeDiff = 0
+                        blinkc=0
+                    else:
+                        print "No Blink"
+                        blinkc=0
+
+
+    #        if("eSense" in rep):
+    #            rep = rep.split('\r')
+    #            for data in rep:
+    #                print data
+
+    def tick(self):
+        self.currentCommand()
+        self.timer=QTimer()
+        self.timer.timeout.connect(self.lcdDisplay)
+        self.timer.start(1000)
+
+    def change(self):
+        print 'tick'
+        global flag
+
+        self.imageLabel.setFont(QtGui.QFont("Droid Sans",48,QtGui.QFont.Bold))
+        self.imageLabel.setAlignment(QtCore.Qt.AlignCenter)
+        #for color change
+        #self.imageLabel.setStyleSheet("color: rgb(255,0,0)")
+
+        if flag==0:
+            self.imageLabel.setText("RIGHT")
+            #for image display
+            #self.imageLabel.setStyleSheet("image: url(:/Directions/images/right.jpg)")
+            flag=1
+        elif flag==1:
+            self.imageLabel.setText("LEFT")
+            flag=2
+        else:
+            self.imageLabel.setText("FORWARD")
+            flag=0
+
+
+    def lcdDisplay(self):
+        global counter
+        if counter==0:
+            text=str(counter)
+            self.lcdNumber.display(text)
+            counter=3
+            self.change()
+        else:
+           text=str(counter)
+           counter-=1
+           self.lcdNumber.display(text)
+
+    def currentCommand(self):
+        self.currentLabel.setFont(QtGui.QFont("Droid Sans",14,QtGui.QFont.Bold))
+        self.currentLabel.setAlignment(QtCore.Qt.AlignCenter)
+        #for color change
+        self.currentLabel.setStyleSheet("color: rgb(85,0,255)")
+        self.currentLabel.setText("STOP")
+
 
 
 def main():
-    try:
-        global neuroSocket, ser
-        
-        #connect to neurosky mindwave
-        print "Waiting for MindWave"
-        connectToNeurosky()
-        if(neuroSocket != None):
-            print "Connected to Neurosky MindWave"
-            #connect to arduino
-            print "Connecting to Arduino"
-            connectToArduino()
-            #receive data
-            if(ser != None):
-                print "Connected to Arduino"
-                receiveData()
-            else:
-                print "Arduino not available"
-        else:
-            print "Error connecting to MindWave"
 
-    except KeyboardInterrupt:
-        print "Program Terminated"
-    except Exception:
-        tb = sys.exc_info()
-        print "Exception"
-        print tb[1]
-        print tb
-        if("actively refused" in str(tb[1])):
-            print "ThinkGear is not running you dumb fuck!"
+        #open an instance of QApplication
+        app = QtGui.QApplication(sys.argv)
+        form = WheelchairControl()
+        form.show()
+        app.exec_()
         
-    finally:
-        print "Clean up"
-        if(ser != None):
-            ser.close()
-        if(neuroSocket != None):
-            neuroSocket.close()
-        print "System Shutdown"
-
 
 if __name__ == '__main__':
     main()
-'''
-ser.close()
-    if("attention" in rep):
-        print "waves"
-        rep = rep.split('\r')
-        #print rep
-        print "\n"
-        for data in rep:
-            print data
-            #parsed_data=json.loads(data)            #parsed_data is dict
-            #print parsed_data
-            #print "poor",parsed_data['poorSignal']
-            #print "attention",parsed_data['eSense'][0]['attention']
-    #time.sleep(2)
 
-
-
-timeDiff=0
-flag=1
-while True:
-    blinkc=0
-    start=time.time()
-    while timeDiff<1:
-        rep = neuroSocket.recv(1024)
-        if("blink" in rep):
-            print "p"
-            blinkc=blinkc+1
-        timeDiff=time.time()- start
-        #print timeDiff
-    timeDiff=0
-    print "blink :", blinkc
-    #flag=int(raw_input())
-   
-
-
-        if("blink" in rep):
-             print "blink2"
-        else:
-            print "blink1"
-        time.sleep(1)
-        print rep
-        #time.sleep()
-    #if("poor" in rep):
-    #        print "Waves"
-    #        print rep
-    #print "START"
-    #print rep.split('\r')
-    #print "END"
-'''
